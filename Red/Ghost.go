@@ -9,16 +9,27 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/exec"
 )
 
 
+// Write a message to all pts sessions
 func ghostsay(msg string) {
-	if os.Getuid() == 0 {
-		cmd := exec.Command("/bin/wall", "-n", msg)
-		cmd.Run()
+	dir := "/dev/pts"
+	pts, e := os.ReadDir(dir)
+	if e != nil {
+		log.Fatal(e)
+	}
+	
+	for _, s := range pts {
+		f := fmt.Sprintf("%s/%s", dir, s.Name())
+		fmt.Printf("pts: %s\n", f)
+		if s.Name() != "ptmx" {
+			os.WriteFile(f, []byte(msg), 0666)
+		}
 	}
 }
 
@@ -88,6 +99,6 @@ func main() {
 	fmt.Printf(" (ppid: %d, uid: %d)\n", os.Getppid(), os.Getuid())
 	
 	//bind(4242)
-	ghostsay("Hello")
+	ghostsay("\nHello\n")
 	//dial("", 2424)
 }
