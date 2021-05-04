@@ -13,6 +13,7 @@ package main
 
 import (
 	"crypto/md5"
+	"errors"
 	"fmt"
 	"io"
 	/*"io/ioutil"*/
@@ -21,7 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"strconv"
-	/*"strings"*/
+	"strings"
 	/*"sync"*/
 	/*"syscall"*/
 	/*"time"*/
@@ -30,7 +31,7 @@ import (
 type Process struct {
 	// stats read from /proc/<pid>/stat
 	pid int			// process id
-	comm string		// (executable name)
+	comm string		// Executable name
 	state rune		// process state
 	ppid int		// parent process id
 	pgrp int		// process group id
@@ -48,7 +49,7 @@ type Process struct {
 
 // Prints a summary of a proc
 func procSummary(proc Process) {
-	summary := "Process %d %s\nstate: %c tty: %d session: %d ppid: %d\nlink: %s sum: %s\n"
+	summary := "Process %d (%s)\nstate: %c tty: %d session: %d ppid: %d\nlink: %s sum: %s\n"
 	summary = fmt.Sprintf(summary, proc.pid, proc.comm, proc.state, proc.tty_nr, proc.session, proc.ppid,
 	proc.exelink, proc.exesum)
 	
@@ -66,20 +67,30 @@ func kill(pid int) {
 
 
 // Reads data about an individual process from the /proc filesystem and returns a Process
-func readProc(pid int) Process {
+func readProc(pid int) (Process, error) {
 	proc := Process{pid: pid}
 	procDir := fmt.Sprintf("/proc/%d", pid)
 	
+	if _, e := os.Stat(procDir); os.IsNotExist(e) {
+		return proc, errors.New("Process does not exist")
+	}
+	
 	// Read and fill data from /proc/[pid]/stat
-	statFile := procDir + "/stat" //"fmt.Sprintf("/proc/%d/stat", pid)
+	
+	statFile := procDir + "/stat"
 	statData, _ := os.ReadFile(statFile)
 	statStr := string(statData)
 	
+	// Read comm then slice past it
+	// (File names can cause issues if comm is handled with Sscanf)
+	commStart := strings.IndexRune(statStr, '(')
+	commEnd := strings.LastIndex(statStr, ")")
+	proc.comm = statStr[commStart+1:commEnd]
+	statStr = statStr[commEnd+2:]
+	
 	fmt.Sscanf(
 		statStr, 
-		"%d %s %c %d %d %d %d %d %u",
-		&proc.pid,
-		&proc.comm,
+		"%c %d %d %d %d %d %u",
 		&proc.state,
 		&proc.ppid,
 		&proc.pgrp,
@@ -103,7 +114,7 @@ func readProc(pid int) Process {
 		proc.exesum = sum
 	}
 	
-	return proc
+	return proc, nil
 }
 
 
@@ -121,13 +132,10 @@ func readProcfs() []Process {
 		}
 		
 		id, _ := strconv.Atoi(ename)
-		proc := readProc(id)
+		proc, _ := readProc(id)
 		procs = append(procs, proc)
 	}
-	for _, p := range procs {
-		//fmt.Printf("%s\n", p.comm)
-		procSummary(p)
-	}
+	
 	return procs
 }
 
@@ -145,9 +153,12 @@ func audit(proc Process) {
 func main() {
 	if len(os.Args) == 2 {
 		pid, _ := strconv.Atoi(os.Args[1])
-		proc := readProc(pid)
+		proc, _ := readProc(pid)
 		procSummary(proc)
 	} else {
-		readProcfs()
+		procs := readProcfs()
+		for _, p := range procs {
+			procSummary(p)
+		}
 	}
 }
