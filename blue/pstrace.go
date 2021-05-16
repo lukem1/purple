@@ -44,6 +44,8 @@ type Process struct {
 	// other stats
 	exelink string	// Link to the executable
 	exesum string	// md5sum of the executable
+	
+	cmdline string  // command line arguments
 }
 
 
@@ -114,6 +116,13 @@ func readProc(pid int) (Process, error) {
 		proc.exesum = sum
 	}
 	
+	// Read /proc/[pid]/cmdline
+	
+	cmdFile := procDir + "/cmdline"
+	cmdData, _ := os.ReadFile(cmdFile)
+	proc.cmdline = string(cmdData)
+	
+	
 	return proc, nil
 }
 
@@ -139,14 +148,40 @@ func readProcfs() []Process {
 	return procs
 }
 
-
+// TODO
 // Audit a process for suspect behavior
 // - Check if exe is still on disk
 // - Check if exe in memory matches exe on disk
 // - what files are being used
 // - network activity
-func audit(proc Process) {
-	// TODO
+
+// Group processes by exe and get info about exes
+func exeTrace(procs []Process) {
+	exes := make(map[string][]Process)
+	keys := make([]string, 0)
+	for _, p := range procs {
+		exe := p.exelink
+		// If exelink is empty fall back to comm (kernel threads)
+		if exe == "" {
+			exe = fmt.Sprintf("(%s)", p.comm)
+		}
+		// Store new keys and map exes to procs
+		if _, k := exes[exe]; !k {
+			keys = append(keys, exe)
+		}
+		exes[exe] = append(exes[exe], p)
+	}
+	// Print results
+	for _, k := range keys {
+		fmt.Printf("┌ %s (Count: %d)\n", k, len(exes[k]))
+		for i, p := range exes[k] {
+			line := '├'
+			if i == len(exes[k]) - 1 {
+				line = '└'
+			}
+			fmt.Printf("%c [-] (%d) -> (%d) %s\n", line, p.ppid, p.pid, p.cmdline)
+		}
+	}
 }
 
 
@@ -157,8 +192,10 @@ func main() {
 		procSummary(proc)
 	} else {
 		procs := readProcfs()
+		/*
 		for _, p := range procs {
 			procSummary(p)
-		}
+		}*/
+		exeTrace(procs)
 	}
 }
