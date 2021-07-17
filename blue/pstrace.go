@@ -31,7 +31,7 @@ import (
 type Process struct {
 	// stats read from /proc/<pid>/stat
 	pid int			// process id
-	comm string		// Executable name
+	comm string		// executable name
 	state rune		// process state
 	ppid int		// parent process id
 	pgrp int		// process group id
@@ -42,8 +42,9 @@ type Process struct {
 	
 	
 	// other stats
-	exelink string	// Link to the executable
+	exelink string	// link to the executable
 	exesum string	// md5sum of the executable
+	exedel bool		// true if exe has been deleted from disk
 	
 	cmdline string  // command line arguments
 }
@@ -107,6 +108,12 @@ func readProc(pid int) (Process, error) {
 	
 	linkData, _ := os.Readlink(exeFile)
 	proc.exelink = linkData
+	
+	if strings.Contains(linkData, "(deleted)") {
+		proc.exedel = true
+	} else {
+		proc.exedel = false
+	}
 	
 	exeData, _ := os.Open(exeFile)
 	
@@ -186,16 +193,43 @@ func exeTrace(procs []Process) {
 
 
 func main() {
-	if len(os.Args) == 2 {
-		pid, _ := strconv.Atoi(os.Args[1])
-		proc, _ := readProc(pid)
-		procSummary(proc)
-	} else {
+	// TODO: improve cli arg parsing
+	// - more options
+	// - better targeting
+	// - help and usage
+	
+	if len(os.Args) == 1 {
 		procs := readProcfs()
-		/*
-		for _, p := range procs {
-			procSummary(p)
-		}*/
+		exeTrace(procs)
+	} else {
+		var starti int
+		procs := make([]Process, 0)
+		if os.Args[1][0] != '-' {
+			pid, _ := strconv.Atoi(os.Args[1])
+			p, e := readProc(pid)
+			if e != nil {
+				log.Fatal(e.Error())
+			}
+			procs = append(procs, p)
+			starti = 2
+		} else {
+			procs = readProcfs()
+			starti = 1
+		}
+		
+		for i := starti; i < len(os.Args); i++ {
+			switch os.Args[i] {
+				case "--deleted": // only list procs with deleted exes
+					for _, p := range procs {
+						if p.exedel {
+							procSummary(p)
+						}
+					}
+					return
+				default:
+					log.Fatal("Unrecognized argument: ", os.Args[i])
+			}
+		}
 		exeTrace(procs)
 	}
 }
