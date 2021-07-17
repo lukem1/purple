@@ -193,18 +193,43 @@ func exeTrace(procs []Process) {
 
 
 func main() {
-	if len(os.Args) == 2 {
-		pid, _ := strconv.Atoi(os.Args[1])
-		proc, _ := readProc(pid)
-		procSummary(proc)
-	} else {
+	// TODO: improve cli arg parsing
+	// - more options
+	// - better targeting
+	// - help and usage
+	
+	if len(os.Args) == 1 {
 		procs := readProcfs()
+		exeTrace(procs)
+	} else {
+		var starti int
+		procs := make([]Process, 0)
+		if os.Args[1][0] != '-' {
+			pid, _ := strconv.Atoi(os.Args[1])
+			p, e := readProc(pid)
+			if e != nil {
+				log.Fatal(e.Error())
+			}
+			procs = append(procs, p)
+			starti = 2
+		} else {
+			procs = readProcfs()
+			starti = 1
+		}
 		
-		for _, p := range procs {
-			if p.exedel {
-				procSummary(p)
+		for i := starti; i < len(os.Args); i++ {
+			switch os.Args[i] {
+				case "--deleted": // only list procs with deleted exes
+					for _, p := range procs {
+						if p.exedel {
+							procSummary(p)
+						}
+					}
+					return
+				default:
+					log.Fatal("Unrecognized argument: ", os.Args[i])
 			}
 		}
-		//exeTrace(procs)
+		exeTrace(procs)
 	}
 }
