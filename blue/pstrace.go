@@ -31,7 +31,7 @@ import (
 type Process struct {
 	// stats read from /proc/<pid>/stat
 	pid int			// process id
-	comm string		// Executable name
+	comm string		// executable name
 	state rune		// process state
 	ppid int		// parent process id
 	pgrp int		// process group id
@@ -42,8 +42,9 @@ type Process struct {
 	
 	
 	// other stats
-	exelink string	// Link to the executable
+	exelink string	// link to the executable
 	exesum string	// md5sum of the executable
+	exedel bool		// true if exe has been deleted from disk
 	
 	cmdline string  // command line arguments
 }
@@ -107,6 +108,12 @@ func readProc(pid int) (Process, error) {
 	
 	linkData, _ := os.Readlink(exeFile)
 	proc.exelink = linkData
+	
+	if strings.Contains(linkData, "(deleted)") {
+		proc.exedel = true
+	} else {
+		proc.exedel = false
+	}
 	
 	exeData, _ := os.Open(exeFile)
 	
@@ -192,10 +199,12 @@ func main() {
 		procSummary(proc)
 	} else {
 		procs := readProcfs()
-		/*
+		
 		for _, p := range procs {
-			procSummary(p)
-		}*/
-		exeTrace(procs)
+			if p.exedel {
+				procSummary(p)
+			}
+		}
+		//exeTrace(procs)
 	}
 }
