@@ -29,17 +29,34 @@ import (
 )
 
 type Process struct {
-	// stats read from /proc/<pid>/stat
-	pid int			// process id
-	comm string		// executable name
-	state rune		// process state
-	ppid int		// parent process id
-	pgrp int		// process group id
-	session int		// session id
-	tty_nr int		// controlling terminal
-	tpgid int 		// id of process group controlling tty
-	flags uint 		// kernel flags
+	// pstrace data
+	upid int			// unique process id
+	lastseen uint64 	// clock ticks since boot that pstrace last saw the proc
 	
+	// stats read from /proc/<pid>/stat
+	pid int				// process id
+	comm string			// executable name
+	state rune			// process state
+	ppid int			// parent process id
+	pgrp int			// process group id
+	session int			// session id
+	tty_nr int			// controlling terminal
+	tpgid int 			// id of process group controlling tty
+	flags uint 			// kernel flags
+	minflt uint64		// number of minor faults
+	cminflt uint64		// number of minor faults by children
+	majflt uint64		// number of major faults
+	cmajflt uint64		// number of major faults by children
+	utime uint64		// clock ticks proc has been scheduled in user mode
+	stime uint64		// clock ticks proc has been scheduled in kernel mode
+	cutime int64		// clock ticks children have been scheduled in user mode
+	cstime int64		// clock ticks children have been scheduled in kernel mode
+	priority int64		// scheduling priority
+	nice int64			// the nice value
+	num_threads int64	// number of threads in the proc
+	itrealvalue int64	// jiffies before the next SIGALRM
+	starttime uint64	// clock ticks since boot at proc start
+	vsize uint64		// virtual memory size in bytes
 	
 	// other stats
 	exelink string	// link to the executable
@@ -90,17 +107,64 @@ func readProc(pid int) (Process, error) {
 	commEnd := strings.LastIndex(statStr, ")")
 	proc.comm = statStr[commStart+1:commEnd]
 	statStr = statStr[commEnd+2:]
+	fmtStr := "%c %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d"
+	//fmt.Printf("stat: %s\n", statStr)
 	
 	fmt.Sscanf(
-		statStr, 
-		"%c %d %d %d %d %d %u",
+		statStr,
+		fmtStr,
 		&proc.state,
 		&proc.ppid,
 		&proc.pgrp,
 		&proc.session,
 		&proc.tty_nr,
 		&proc.tpgid,
-		&proc.flags)
+		&proc.flags,
+		&proc.minflt,
+		&proc.cminflt,
+		&proc.majflt,
+		&proc.cmajflt,
+		&proc.utime,
+		&proc.stime,
+		&proc.cutime,
+		&proc.cstime,
+		&proc.priority,
+		&proc.nice,
+		&proc.num_threads,
+		&proc.itrealvalue,
+		&proc.starttime,
+		&proc.vsize)
+	
+	/*	
+	log.Printf("Parsed: %d\n", r)
+	if e != nil {
+		log.Printf("Error: %s\n", e.Error())
+	}
+	
+	fmt.Printf("Proc: %c %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
+		proc.state,
+		proc.ppid,
+		proc.pgrp,
+		proc.session,
+		proc.tty_nr,
+		proc.tpgid,
+		proc.flags,
+		proc.minflt,
+		proc.cminflt,
+		proc.majflt,
+		proc.cmajflt,
+		proc.utime,
+		proc.stime,
+		proc.cutime,
+		proc.cstime,
+		proc.priority,
+		proc.nice,
+		proc.num_threads,
+		proc.itrealvalue,
+		proc.starttime,
+		proc.vsize)
+	*/
+	
 		
 	// Read /proc/[pid]/exe (often requires root)
 	
@@ -186,10 +250,14 @@ func exeTrace(procs []Process) {
 			if i == len(exes[k]) - 1 {
 				line = '└'
 			}
-			fmt.Printf("%c [-] (%d) -> (%d) %s\n", line, p.ppid, p.pid, p.cmdline)
+			fmt.Printf("%c [-] (%d) -> (%d) %s started at %d\n", line, p.ppid, p.pid, p.cmdline, p.starttime)
 		}
 	}
 }
+
+
+// Monitor procfs
+//func monitor() {
 
 
 func main() {
