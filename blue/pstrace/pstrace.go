@@ -24,13 +24,10 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	/*"sync"*/ /*"syscall"*/ /*"time"*/)
+	"time"
+	/*"sync"*/ /*"syscall"*/)
 
 type Process struct {
-	// pstrace data
-	upid     int    // unique process id // TODO: Remove or use
-	lastseen uint64 // clock ticks since boot that pstrace last saw the proc // TODO: Remove or use
-
 	// stats read from /proc/<pid>/stat
 	pid         int    // process id
 	comm        string // executable name
@@ -58,7 +55,7 @@ type Process struct {
 
 	// other stats
 	exelink string // link to the executable
-	exesum  string // md5sum of the executable
+	exesum  string // md5sum of the executable in memory
 	exedel  bool   // true if exe has been deleted from disk
 
 	cmdline string // command line arguments
@@ -176,6 +173,7 @@ func readProc(pid int) (Process, error) {
 		proc.exedel = false
 	}
 
+	// Get the md5sum of the in memory executable
 	exeData, _ := os.Open(exeFile)
 
 	h := md5.New()
@@ -251,10 +249,6 @@ func exeTrace(procs map[int]Process) {
 }
 
 // Monitor process info
-// TODO:
-// - Add sleep so this is less demanding? What response time is optimal?
-//   - This method (reading procfs) will always result in race conditions and missed processes.
-//   - Kernel space modifications (ie Snoopy) are necessary to catch everything.
 func psMonitor() {
 	var procs map[int]Process
 	exes := make(map[string]string)
@@ -267,7 +261,7 @@ func psMonitor() {
 
 				// Check if we have seen this exe running before
 				if _, k := exes[p.exelink]; !k {
-					fmt.Printf("Info - New Executable Seen - %s\n", p.exelink)
+					fmt.Printf("INFO - New Executable Seen - %s\n", p.exelink)
 					exes[p.exelink] = p.exesum
 				}
 
@@ -279,22 +273,22 @@ func psMonitor() {
 					exists = false
 				}
 
-				//if !exists {
-				//	fmt.Printf("Info - New Process Seen - %d: %s\n", p.pid, p.exelink)
-				//}
+				// TODO: Alerting on new procs generates a lot of noise. Should be optional.
+				if !exists {
+					fmt.Printf("INFO - New Process Seen - %d: %s - %s\n", p.pid, p.exelink, p.cmdline)
+				}
 
 				// Check if the in exe md5 changes across procs
 				if exes[p.exelink] != p.exesum {
-					fmt.Printf("Warning - Exe MD5 Changed - PID: %d EXE: %s\n", p.pid, p.exelink)
+					fmt.Printf("WARN - Exe MD5 Changed - PID: %d EXE: %s\n", p.pid, p.exelink)
 					exes[p.exelink] = p.exesum
 				}
 
 				// Check if the proc is running with a deleted executable
 				if p.exedel {
-					kill_proc = true
 					// If we have a previous state make sure we are not duplicating an alert
 					if !exists || (exists && prevState.exedel != p.exedel) {
-						fmt.Printf("Critical - Proc With Deleted Executable - PID: %d EXE: %s\n", p.pid, p.exelink)
+						fmt.Printf("CRIT - Proc With Deleted Executable - PID: %d EXE: %s\n", p.pid, p.exelink)
 					}
 				}
 
@@ -311,6 +305,11 @@ func psMonitor() {
 		}
 		// Save current state
 		procs = newProcs
+
+		// Prevent spinning and high cpu use
+		// Longer sleep means more procs may be missed but the main goal
+		// of mon mode is to increase visibility of long running procs.
+		time.Sleep(30 * time.Millisecond)
 	}
 }
 
