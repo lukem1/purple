@@ -193,9 +193,9 @@ func readProc(pid int) (Process, error) {
 	return proc, nil
 }
 
-// Reads the /proc filesystem and returns a slice of Processes
-func readProcfs() []Process {
-	procs := make([]Process, 0)
+// Reads the /proc filesystem and returns a map of Processes
+func readProcfs() map[int]Process {
+	procs := make(map[int]Process)
 	contents, e := os.ReadDir("/proc")
 	if e != nil {
 		log.Printf(e.Error())
@@ -208,7 +208,7 @@ func readProcfs() []Process {
 
 		id, _ := strconv.Atoi(ename)
 		proc, _ := readProc(id)
-		procs = append(procs, proc)
+		procs[proc.pid] = proc
 	}
 
 	return procs
@@ -222,7 +222,7 @@ func readProcfs() []Process {
 // - network activity
 
 // Group processes by exe and get info about exes
-func exeTrace(procs []Process) {
+func exeTrace(procs map[int]Process) {
 	exes := make(map[string][]Process)
 	keys := make([]string, 0)
 	for _, p := range procs {
@@ -250,42 +250,67 @@ func exeTrace(procs []Process) {
 	}
 }
 
-// Monitor exe info
+// Monitor process info
 // TODO:
 // - Add sleep so this is less demanding? What response time is optimal?
-// - Needs more state, if an alert is not resolved it will be printed endlessly.
-//   - Monitor at the proc level instead of exe level? pids are reused -> UID with pid and start time?
-//   - Limit how often the same alert can occur.
-func exeMonitor() {
+//   - This method (reading procfs) will always result in race conditions and missed processes.
+//   - Kernel space modifications (ie Snoopy) are necessary to catch everything.
+func psMonitor() {
+	var procs map[int]Process
 	exes := make(map[string]string)
 	for true {
-		procs := readProcfs()
-		for _, p := range procs {
+		newProcs := readProcfs()
+		for _, p := range newProcs {
+			// Ignore kernel threads
 			if p.exelink != "" {
+				kill_proc := false
+
+				// Check if we have seen this exe running before
 				if _, k := exes[p.exelink]; !k {
 					fmt.Printf("Info - New Executable Seen - %s\n", p.exelink)
 					exes[p.exelink] = p.exesum
-				} else {
-					kill_proc := false
-					if exes[p.exelink] != p.exesum {
-						fmt.Printf("Warning - MD5 Mismatch - PID: %d EXE: %s\n", p.pid, p.exelink)
-						kill_proc = true
+				}
+
+				// Check if we have a previous state for this proc
+				prevState, exists := procs[p.pid]
+				// If the previous state's start time does not match the start time
+				// of the current state the old proc has died and the pid was reused.
+				if exists && prevState.starttime != p.starttime {
+					exists = false
+				}
+
+				//if !exists {
+				//	fmt.Printf("Info - New Process Seen - %d: %s\n", p.pid, p.exelink)
+				//}
+
+				// Check if the in exe md5 changes across procs
+				if exes[p.exelink] != p.exesum {
+					fmt.Printf("Warning - Exe MD5 Changed - PID: %d EXE: %s\n", p.pid, p.exelink)
+					exes[p.exelink] = p.exesum
+				}
+
+				// Check if the proc is running with a deleted executable
+				if p.exedel {
+					kill_proc = true
+					// If we have a previous state make sure we are not duplicating an alert
+					if !exists || (exists && prevState.exedel != p.exedel) {
+						fmt.Printf("Critical - Proc With Deleted Executable - PID: %d EXE: %s\n", p.pid, p.exelink)
 					}
-					if p.exedel {
-						fmt.Printf("Warning - Proc With Deleted Executable - PID: %d EXE: %s\n", p.pid, p.exelink)
-						kill_proc = true
-					}
-					if kill_proc {
-						e := kill(p.pid)
-						if e != nil {
-							fmt.Printf("Failed to kill process %d. %s\n", p.pid, e)
-						} else {
-							fmt.Printf("Killed process %d.\n", p.pid)
-						}
+				}
+
+				// Attempt to kill a bad proc
+				if kill_proc {
+					e := kill(p.pid)
+					if e != nil {
+						fmt.Printf("Failed to kill process %d. %s\n", p.pid, e)
+					} else {
+						fmt.Printf("Killed process %d.\n", p.pid)
 					}
 				}
 			}
 		}
+		// Save current state
+		procs = newProcs
 	}
 }
 
@@ -300,14 +325,14 @@ func main() {
 		exeTrace(procs)
 	} else {
 		var starti int
-		procs := make([]Process, 0)
+		procs := make(map[int]Process)
 		if os.Args[1][0] != '-' {
 			pid, _ := strconv.Atoi(os.Args[1])
 			p, e := readProc(pid)
 			if e != nil {
 				log.Fatal(e.Error())
 			}
-			procs = append(procs, p)
+			procs[p.pid] = p
 			starti = 2
 		} else {
 			procs = readProcfs()
@@ -323,8 +348,8 @@ func main() {
 					}
 				}
 				return
-			case "--exemon": // Monitor exe info
-				exeMonitor()
+			case "--mon": // Monitor mode
+				psMonitor()
 			default:
 				log.Fatal("Unrecognized argument: ", os.Args[i])
 			}
