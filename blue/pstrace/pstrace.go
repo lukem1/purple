@@ -59,12 +59,18 @@ type Process struct {
 	exedel  bool   // true if exe has been deleted from disk
 
 	cmdline string // command line arguments
+
+	uid  int // Real id of the user who started the process
+	euid int // Effective user id
+	suid int // Saved set user id
+	fuid int // Filesystem user id
 }
 
 // Prints a summary of a proc
 func procSummary(proc Process) {
-	summary := "Process %d (%s)\nstate: %c tty: %d session: %d ppid: %d\nlink: %s sum: %s\n"
+	summary := "Process %d (%s)\nstate: %c tty: %d session: %d ppid: %d\nuid: %d euid: %d\nlink: %s sum: %s\n"
 	summary = fmt.Sprintf(summary, proc.pid, proc.comm, proc.state, proc.tty_nr, proc.session, proc.ppid,
+		proc.uid, proc.euid,
 		proc.exelink, proc.exesum)
 
 	fmt.Printf(summary)
@@ -187,6 +193,21 @@ func readProc(pid int) (Process, error) {
 	cmdFile := procDir + "/cmdline"
 	cmdData, _ := os.ReadFile(cmdFile)
 	proc.cmdline = string(cmdData)
+
+	// Read UID info from /proc/[pid]/status
+
+	statusFile := procDir + "/status"
+	statusData, _ := os.ReadFile(statusFile)
+	statusStr := string(statusData)
+	uidStart := strings.Index(statusStr, "Uid:")
+	uidEnd := strings.IndexRune(statusStr[uidStart:], '\n')
+	fmt.Sscanf(
+		statusStr[uidStart+4:uidStart+uidEnd],
+		"%d %d %d %d",
+		&proc.uid,
+		&proc.euid,
+		&proc.suid,
+		&proc.fuid)
 
 	return proc, nil
 }
