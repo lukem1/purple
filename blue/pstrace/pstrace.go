@@ -13,6 +13,8 @@ package main
 
 import (
 	"crypto/md5"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -26,6 +28,19 @@ import (
 	"strings"
 	"time"
 	/*"sync"*/ /*"syscall"*/)
+
+type Socket struct {
+	protocol string // Name of the protocol (tcp, udp, etc)
+
+	state string // State of the socket as a hex string
+
+	local_addr  string // Local ip address
+	local_port  int    // Local port
+	remote_addr string // Remote ip address
+	remote_port int    // Remote port
+
+	inode string // inode of the socket
+}
 
 type Process struct {
 	// stats read from /proc/<pid>/stat
@@ -64,6 +79,8 @@ type Process struct {
 	euid int // Effective user id
 	suid int // Saved set user id
 	fuid int // Filesystem user id
+
+	sockets []Socket // Sockets related to the process
 }
 
 // Prints a summary of a proc
@@ -74,6 +91,11 @@ func procSummary(proc Process) {
 		proc.exelink, proc.exesum)
 
 	fmt.Printf(summary)
+
+	fmt.Println("Related sockets:")
+	for i, s := range proc.sockets {
+		fmt.Printf("%d: Proto: %s State: %s Local: %s:%d Remote: %s:%d\n", i, s.protocol, s.state, s.local_addr, s.local_port, s.remote_addr, s.remote_port)
+	}
 }
 
 // Kill a process
@@ -87,6 +109,22 @@ func kill(pid int) error {
 	return nil
 }
 
+// Decode a hex string ip:port pair into a human readable ip and an integer port
+func decodeAddr(hexAddr string) (ip string, port int) {
+	ipHex := strings.Split(hexAddr, ":")[0]
+	ip = ""
+	for i := 0; i < len(ipHex); i += 2 {
+		ipBytes, _ := hex.DecodeString(ipHex[i : i+2])
+		ip = fmt.Sprintf("%d.", int(ipBytes[0])) + ip
+	}
+	ip = ip[:len(ip)-1]
+
+	portBytes, _ := hex.DecodeString(strings.Split(hexAddr, ":")[1])
+	port = int(binary.BigEndian.Uint16(portBytes))
+
+	return ip, port
+}
+
 // Reads data about an individual process from the /proc filesystem and returns a Process
 func readProc(pid int) (Process, error) {
 	proc := Process{pid: pid}
@@ -96,7 +134,7 @@ func readProc(pid int) (Process, error) {
 		return proc, errors.New("Process does not exist")
 	}
 
-	// Read and fill data from /proc/[pid]/stat
+	// Read data from /proc/[pid]/stat
 
 	statFile := procDir + "/stat"
 	statData, _ := os.ReadFile(statFile)
@@ -208,6 +246,40 @@ func readProc(pid int) (Process, error) {
 		&proc.euid,
 		&proc.suid,
 		&proc.fuid)
+
+	// Read net information from /proc/[pid]/net/.
+
+	// Protocols to watch
+	// TODO:
+	// - Parse available protocols from /etc/protocols?
+	// - ipv6 addresses not currently handled by decodeAddr
+	protocols := []string{"tcp", "udp", "icmp"}
+
+	for _, proto := range protocols {
+		pData, _ := os.ReadFile(procDir + "/net/" + proto)
+		strSockets := strings.Split(string(pData), "\n")
+		if len(strSockets) > 1 {
+			// Remove the header line and the extra line at the end of the file
+			strSockets = strSockets[1 : len(strSockets)-1]
+			// Iterate over each line containing socket info
+			for _, s := range strSockets {
+				// Split the line containing socket info into its fields
+				// Each line has the following fields:
+				// sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
+				sInfo := strings.Fields(s)
+				socket := Socket{protocol: proto}
+
+				socket.local_addr, socket.local_port = decodeAddr(sInfo[1])
+				socket.remote_addr, socket.remote_port = decodeAddr(sInfo[2])
+				socket.state = sInfo[3]
+				socket.inode = sInfo[11]
+
+				proc.sockets = append(proc.sockets, socket)
+			}
+		}
+	}
+
+	procSummary(proc)
 
 	return proc, nil
 }
